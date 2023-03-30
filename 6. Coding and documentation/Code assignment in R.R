@@ -1,6 +1,6 @@
 
 # Sets the path to the parent directory of RR classes
-setwd("Z:\\File folders\\Teaching\\Reproducible Research\\2023\\Repository\\RRcourse2023\\6. Coding and documentation")
+setwd("./")
 
 #   Import data from the O*NET database, at ISCO-08 occupation level.
 # The original data uses a version of SOC classification, but the data we load here
@@ -16,7 +16,8 @@ task_data = read.csv("Data\\onet_tasks.csv")
 # read employment data from Eurostat
 # These datasets include quarterly information on the number of workers in specific
 # 1-digit ISCO occupation categories. (Check here for details: https://www.ilo.org/public/english/bureau/stat/isco/isco08/)
-library(readxl)                     
+library(readxl)      
+library(tidyverse)
 
 isco1 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO1")
 isco2 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO2")
@@ -28,6 +29,28 @@ isco7 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO7")
 isco8 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO8")
 isco9 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO9")
 
+# obtain sheets names
+isos <- excel_sheets("Data\\Eurostat_employment_isco.xlsx")
+isos <- isos[isos != "Total"] #exclude the Sotal sheet
+
+# Loop over each iso in isos and a assign each element to a dataframe
+for(i in isos){
+  assign(i,
+         read_excel("Data\\Eurostat_employment_isco.xlsx", sheet=i),
+         envir = parent.frame()
+  )
+}
+
+
+# or using lapply()
+isos_lapply <- setNames(lapply(isos, 
+                               function(x) read_excel("Data\\Eurostat_employment_isco.xlsx", 
+                                             sheet=x)),
+                        isos)
+
+
+
+
 # We will focus on three countries, but perhaps we could clean this code to allow it
 # to easily run for all the countries in the sample?
 
@@ -35,6 +58,18 @@ isco9 <- read_excel("Data\\Eurostat_employment_isco.xlsx", sheet="ISCO9")
 total_Belgium = isco1$Belgium + isco2$Belgium + isco3$Belgium + isco4$Belgium + isco5$Belgium + isco6$Belgium + isco7$Belgium + isco8$Belgium + isco9$Belgium
 total_Spain = isco1$Spain + isco2$Spain + isco3$Spain + isco4$Spain + isco5$Spain + isco6$Spain + isco7$Spain + isco8$Spain + isco9$Spain
 total_Poland = isco1$Poland + isco2$Poland + isco3$Poland + isco4$Poland + isco5$Poland + isco6$Poland + isco7$Poland + isco8$Poland + isco9$Poland
+
+
+# Create a function that sums total works for any country, 
+Total_workers <- function(list_df, country){
+  L = lapply(list_df, function(x) x %>% pull(country))
+  result <- Reduce(`+`, L)
+  return(result)
+}
+
+total_Belgium <- Total_workers(isos_lapply, "Belgium")
+total_Spain <- Total_workers(isos_lapply, "Spain")
+total_Poland <- Total_workers(isos_lapply, "Poland")
 
 # Let's merge all these datasets. We'll need a column that stores the occupation categories:
 isco1$ISCO <- 1
@@ -47,14 +82,34 @@ isco7$ISCO <- 7
 isco8$ISCO <- 8
 isco9$ISCO <- 9
 
+# this can be inproved with lapply or a for loop
+for (i in 1:length(names(isos_lapply))){
+  isos_lapply[[i]]$ISCO = i
+}
+
+
 # and this gives us one large file with employment in all occupations.
 all_data <- rbind(isco1, isco2, isco3, isco4, isco5, isco6, isco7, isco8, isco9)
+
+# we can combine our list into a single dataframe
+all_data <- bind_rows(isos_lapply)
 
 # We have 9 occupations and the same time range for each, so we an add the totals by
 # adding a vector that is 9 times the previously calculated totals
 all_data$total_Belgium <- c(total_Belgium, total_Belgium, total_Belgium, total_Belgium, total_Belgium, total_Belgium, total_Belgium, total_Belgium, total_Belgium) 
 all_data$total_Spain <- c(total_Spain, total_Spain, total_Spain, total_Spain, total_Spain, total_Spain, total_Spain, total_Spain, total_Spain) 
 all_data$total_Poland <- c(total_Poland, total_Poland, total_Poland, total_Poland, total_Poland, total_Poland, total_Poland, total_Poland, total_Poland) 
+
+
+# Using tidyverse we have a cleaner version
+add_country_total <- function(all_data, countries){
+  all_data %>%
+    group_by(TIME) %>%
+    mutate(across(countries, sum, .names = "{.col}_Total"))
+}
+
+all_data <- add_country_total(all_data, countries = c("Poland", "Belgium"))
+
 
 # And this will give us shares of each occupation among all workers in a period-country
 all_data$share_Belgium = all_data$Belgium/all_data$total_Belgium
